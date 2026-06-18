@@ -13,6 +13,9 @@
 
       <!-- Sidebar -->
       <div class="w-full lg:w-80 space-y-4">
+        <!-- Recent achievements -->
+        <AchievementPanel />
+
         <!-- Game Status -->
         <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
           <h3 class="text-lg font-bold text-green-400 mb-3">游戏状态</h3>
@@ -110,6 +113,9 @@
 
         <!-- Replay Panel -->
         <ReplayPanel />
+
+        <!-- Endgame Challenges -->
+        <EndgamePanel />
       </div>
     </div>
   </div>
@@ -120,14 +126,16 @@ import { computed } from 'vue';
 import { useGameStore } from './store/game';
 import GameBoard from './components/GameBoard.vue';
 import ReplayPanel from './components/ReplayPanel.vue';
+import AchievementPanel from './components/AchievementPanel.vue';
+import EndgamePanel from './components/EndgamePanel.vue';
 
 const store = useGameStore();
 
 const statusText = computed(() => {
   switch (store.status) {
     case 'idle': return '等待开始';
-    case 'playing': return '对弈中';
-    case 'finished': return '已结束';
+    case 'playing': return store.endgameActive ? '残局中' : '对弈中';
+    case 'finished': return store.endgameActive ? '残局结束' : '已结束';
     case 'replaying': return '回放中';
     default: return '';
   }

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { BoardState, Move, GameRecord, AIConfig, GameStatus } from '../types';
+import type { BoardState, Move, GameRecord, AIConfig, GameStatus, EndgamePuzzle } from '../types';
+import { useAchievementStore } from './achievement';
 
 const BOARD_SIZE = 15;
 const EMPTY = 0;
@@ -10,6 +11,61 @@ const WHITE = 2;
 function createEmptyBoard(): BoardState {
   return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
 }
+
+// --- Endgame (残局) Puzzles ---
+// Each puzzle gives Black a forced win. Difficulty rises with the subtlety of the key move.
+
+export const ENDGAME_PUZZLES: EndgamePuzzle[] = [
+  {
+    id: 'puzzle_easy',
+    name: '一击必胜',
+    description: '黑棋已形成活四，找出制胜的一手。',
+    difficulty: 'easy',
+    playerColor: BLACK,
+    stones: [
+      { row: 7, col: 6, player: BLACK },
+      { row: 7, col: 7, player: BLACK },
+      { row: 7, col: 8, player: BLACK },
+      { row: 7, col: 9, player: BLACK },
+      { row: 3, col: 3, player: WHITE },
+      { row: 3, col: 4, player: WHITE },
+    ],
+  },
+  {
+    id: 'puzzle_medium',
+    name: '活三突围',
+    description: '黑棋持有活三，先手将其转为活四即可锁定胜局。',
+    difficulty: 'medium',
+    playerColor: BLACK,
+    stones: [
+      { row: 7, col: 6, player: BLACK },
+      { row: 7, col: 7, player: BLACK },
+      { row: 7, col: 8, player: BLACK },
+      { row: 3, col: 3, player: WHITE },
+      { row: 3, col: 4, player: WHITE },
+      { row: 10, col: 10, player: WHITE },
+    ],
+  },
+  {
+    id: 'puzzle_hard',
+    name: '双冲四',
+    description: '黑棋在两条线上各有一个跳三，找到同时补全缺口的一手形成双冲四。',
+    difficulty: 'hard',
+    playerColor: BLACK,
+    stones: [
+      { row: 7, col: 5, player: BLACK },
+      { row: 7, col: 6, player: BLACK },
+      { row: 7, col: 8, player: BLACK },
+      { row: 5, col: 7, player: BLACK },
+      { row: 6, col: 7, player: BLACK },
+      { row: 8, col: 7, player: BLACK },
+      { row: 7, col: 4, player: WHITE },
+      { row: 9, col: 7, player: WHITE },
+      { row: 11, col: 11, player: WHITE },
+      { row: 11, col: 12, player: WHITE },
+    ],
+  },
+];
 
 // --- AI: Minimax + Alpha-Beta Pruning ---
 
@@ -192,6 +248,8 @@ function getAIMove(board: BoardState, aiPlayer: number, depth: number): [number,
 // --- Store ---
 
 export const useGameStore = defineStore('game', () => {
+  const achievement = useAchievementStore();
+
   const board = ref<BoardState>(createEmptyBoard());
   const currentPlayer = ref<number>(BLACK);
   const moves = ref<Move[]>([]);
@@ -200,6 +258,10 @@ export const useGameStore = defineStore('game', () => {
   const gameRecords = ref<GameRecord[]>([]);
   const aiConfig = ref<AIConfig>({ depth: 3, enabled: true, playerColor: WHITE });
   const isAiThinking = ref(false);
+
+  // Endgame (残局) mode
+  const endgameActive = ref(false);
+  const currentPuzzle = ref<EndgamePuzzle | null>(null);
 
   // Replay
   const replayMoves = ref<Move[]>([]);
@@ -216,6 +278,40 @@ export const useGameStore = defineStore('game', () => {
     currentPlayer.value = BLACK;
     moves.value = [];
     status.value = 'playing';
+    winner.value = null;
+    isAiThinking.value = false;
+    endgameActive.value = false;
+    currentPuzzle.value = null;
+  }
+
+  function startEndgame(puzzle: EndgamePuzzle) {
+    const newBoard = createEmptyBoard();
+    for (const stone of puzzle.stones) {
+      newBoard[stone.row][stone.col] = stone.player;
+    }
+    board.value = newBoard;
+    currentPlayer.value = puzzle.playerColor;
+    moves.value = [];
+    status.value = 'playing';
+    winner.value = null;
+    isAiThinking.value = false;
+    endgameActive.value = true;
+    currentPuzzle.value = puzzle;
+    // Force AI on as the opponent color so the puzzle is playable solo.
+    aiConfig.value = {
+      ...aiConfig.value,
+      enabled: true,
+      playerColor: puzzle.playerColor === BLACK ? WHITE : BLACK,
+    };
+  }
+
+  function exitEndgame() {
+    endgameActive.value = false;
+    currentPuzzle.value = null;
+    board.value = createEmptyBoard();
+    currentPlayer.value = BLACK;
+    moves.value = [];
+    status.value = 'idle';
     winner.value = null;
     isAiThinking.value = false;
   }
@@ -270,6 +366,17 @@ export const useGameStore = defineStore('game', () => {
       duration: moves.value.length > 0 ? moves.value[moves.value.length - 1].timestamp - moves.value[0].timestamp : 0,
     };
     gameRecords.value.unshift(record);
+
+    // --- Achievement recording ---
+    if (endgameActive.value && currentPuzzle.value) {
+      const humanWon = winner.value === currentPuzzle.value.playerColor;
+      if (humanWon) achievement.recordEndgameCompleted();
+      // Endgame mode is tracked separately; it does not affect win streak.
+    } else if (aiConfig.value.enabled) {
+      const humanColor = aiConfig.value.playerColor === BLACK ? WHITE : BLACK;
+      const humanWon = winner.value === humanColor;
+      achievement.recordGameWon(humanWon);
+    }
   }
 
   function startReplay(record: GameRecord) {
@@ -278,6 +385,7 @@ export const useGameStore = defineStore('game', () => {
     replayBoard.value = createEmptyBoard();
     status.value = 'replaying';
     isReplayPlaying.value = false;
+    achievement.recordReview();
   }
 
   function replayStepForward() {
@@ -357,9 +465,10 @@ export const useGameStore = defineStore('game', () => {
 
   return {
     board, currentPlayer, moves, status, winner, gameRecords, aiConfig, isAiThinking,
+    endgameActive, currentPuzzle,
     replayMoves, replayIndex, replayBoard, isReplayPlaying, replaySpeed,
     currentMoveCount, isGameOver,
-    startGame, placeStone, aiMove, saveRecord,
+    startGame, startEndgame, exitEndgame, placeStone, aiMove, saveRecord,
     startReplay, replayStepForward, replayStepBack, replayGoToStart, replayGoToEnd,
     toggleReplayPlay, setReplaySpeed, stopReplay, checkWin,
   };

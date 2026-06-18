@@ -22,3 +22,48 @@ export interface AIConfig {
 }
 
 export type GameStatus = 'idle' | 'playing' | 'finished' | 'replaying';
+
+// --- Achievement System ---
+
+export type AchievementCategory = 'first_win' | 'consecutive_wins' | 'endgame' | 'review';
+
+export interface AchievementBadge {
+  id: string;
+  name: string;
+  description: string;
+  category: AchievementCategory;
+  icon: string;
+  threshold: number;
+}
+
+export interface UnlockRecord {
+  badgeId: string;
+  unlockedAt: number;
+}
+
+export interface AchievementStats {
+  firstWinDone: boolean;
+  currentWinStreak: number;
+  maxWinStreak: number;
+  endgamesCompleted: number;
+  reviewCount: number;
+  unlockedBadges: string[];
+  recentUnlocks: UnlockRecord[];
+}
+
+// --- Endgame (残局) Puzzles ---
+
+export interface PuzzleStone {
+  row: number;
+  col: number;
+  player: number;
+}
+
+export interface EndgamePuzzle {
+  id: string;
+  name: string;
+  description: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  stones: PuzzleStone[];
+  playerColor: number;
+}
